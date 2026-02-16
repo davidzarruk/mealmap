@@ -11,6 +11,7 @@ import { WeeklyNutritionChart } from '../../components/WeeklyNutritionChart';
 import { MealCategoryIcon } from '../../components/MealCategoryIcon';
 import { dayTabs, DayKey, initialWeekMeals, MealCard, MealType, mealTypes, replacementPool, WeekMealsMap } from '../../data/plan';
 import { getMealDescription } from '../../data/mealDescriptions';
+import { mealDatabase, getMealsByType, searchMealDatabase, toMealCard, MealTypeTag } from '../../data/mealDatabase';
 import { approveTopCard as approveTopCardState, getPendingCards, replaceTopCard as replaceTopCardState } from '../../domain/planFlow.mjs';
 import { trackEvent } from '../../lib/analytics';
 import { measureAsync } from '../../lib/perf';
@@ -69,7 +70,11 @@ export function PlanScreen() {
   const navigation = useNavigation<NavigationProp>();
   const theme = useThemeColors();
   const [selectedDay, setSelectedDay] = useState<DayKey>('Mon');
-  const [selectedMealType, setSelectedMealType] = useState<MealType>('Almuerzo');
+  const [selectedMealType, setSelectedMealType] = useState<MealType>('Lunch');
+  // IT-010: Track chosen meals per day+mealType slot
+  const [chosenMeals, setChosenMeals] = useState<Record<string, MealCard | null>>({});
+  // IT-011: Deck of meals from database, filtered by type
+  const [deckCursor, setDeckCursor] = useState<Record<string, number>>({});
   const [weekMeals, setWeekMeals] = useState<WeekMealsMap>(initialWeekMeals);
   const [approvedIds, setApprovedIds] = useState<string[]>([]);
   const [replaceCursorByDay, setReplaceCursorByDay] = useState<Record<DayKey, number>>({
@@ -91,6 +96,51 @@ export function PlanScreen() {
   const [showDietaryModal, setShowDietaryModal] = useState(false);
   const celebrationOpacity = useRef(new Animated.Value(0)).current;
   const dragX = useRef(new Animated.Value(0)).current;
+
+  // IT-010/011: Derived slot key and meal type tag
+  const slotKey = `${selectedDay}-${selectedMealType}`;
+  const mealTypeToTag: Record<MealType, MealTypeTag> = { Breakfast: 'breakfast', Lunch: 'lunch', Dinner: 'dinner' };
+  const currentTag = mealTypeToTag[selectedMealType];
+
+  // IT-011: Filtered deck from database
+  const deckMeals = useMemo(() => {
+    let meals = getMealsByType(currentTag);
+    if (activeDietaryTags.length > 0) {
+      meals = meals.filter((m) => activeDietaryTags.every((tag) => m.dietTags.includes(tag as any)));
+    }
+    const seed = selectedDay.charCodeAt(0) + selectedMealType.charCodeAt(0);
+    return [...meals].sort((a, b) => {
+      const ha = (a.id.charCodeAt(3) * 31 + seed) % 1000;
+      const hb = (b.id.charCodeAt(3) * 31 + seed) % 1000;
+      return ha - hb;
+    });
+  }, [currentTag, selectedDay, selectedMealType, activeDietaryTags]);
+
+  const currentDeckIndex = deckCursor[slotKey] ?? 0;
+  const currentDeckCard: MealCard | null = useMemo(() => {
+    if (currentDeckIndex >= deckMeals.length) return null;
+    const dbMeal = deckMeals[currentDeckIndex];
+    return { ...toMealCard(dbMeal), mealType: selectedMealType };
+  }, [deckMeals, currentDeckIndex, selectedMealType]);
+
+  const chosenMeal = chosenMeals[slotKey] ?? null;
+
+  // IT-010: Choose meal for slot (swipe right)
+  const chooseMealForSlot = useCallback((meal: MealCard) => {
+    setChosenMeals((prev) => ({ ...prev, [slotKey]: meal }));
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+  }, [slotKey]);
+
+  // IT-009: Dismiss chosen meal (X button)
+  const dismissChosenMeal = useCallback(() => {
+    setChosenMeals((prev) => ({ ...prev, [slotKey]: null }));
+  }, [slotKey]);
+
+  // IT-010: Skip to next card (swipe left)
+  const skipToNextCard = useCallback(() => {
+    setDeckCursor((prev) => ({ ...prev, [slotKey]: (prev[slotKey] ?? 0) + 1 }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+  }, [slotKey]);
 
   // IT-001 FIX: Use refs for swipe handlers so PanResponder always calls latest state
   const approveRef = useRef<() => void>(() => {});
@@ -176,7 +226,7 @@ export function PlanScreen() {
     setSelectedMealType(mt);
   }, []);
 
-  // IT-002: Search meals via mock LLM
+  // IT-012: Search full meal database
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query);
     if (query.trim().length < 2) {
@@ -185,24 +235,25 @@ export function PlanScreen() {
     }
     setIsSearching(true);
     try {
-      const results = await searchMeals(query, selectedMealType);
+      const dbResults = searchMealDatabase(query, currentTag);
+      const results: MealCard[] = dbResults.map((m) => ({
+        ...toMealCard(m),
+        mealType: selectedMealType,
+      }));
       setSearchResults(results);
     } catch {
       setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
-  }, [selectedMealType]);
+  }, [selectedMealType, currentTag]);
 
+  // IT-013: Search selection sets as chosen card for current slot
   const addSearchResultToDay = useCallback((meal: MealCard) => {
-    setWeekMeals((prev) => ({
-      ...prev,
-      [selectedDay]: [...prev[selectedDay], { ...meal, mealType: selectedMealType }],
-    }));
+    chooseMealForSlot({ ...meal, mealType: selectedMealType });
     setSearchQuery('');
     setSearchResults([]);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-  }, [selectedDay, selectedMealType]);
+  }, [selectedMealType, chooseMealForSlot]);
 
   const pendingCards = getPendingCards(weekMeals, selectedDay, approvedIds);
   const filteredCards = useMemo(() => {
@@ -262,11 +313,13 @@ export function PlanScreen() {
     }
   }, [weekMeals, selectedDay, approvedIds, replaceCursorByDay]);
 
-  // IT-001 FIX: Keep refs in sync
+  // IT-001 FIX: Keep refs in sync — now using new deck-based flow
   useEffect(() => {
-    approveRef.current = approveTopCard;
-    replaceRef.current = replaceTopCard;
-  }, [approveTopCard, replaceTopCard]);
+    approveRef.current = () => {
+      if (currentDeckCard) chooseMealForSlot(currentDeckCard);
+    };
+    replaceRef.current = skipToNextCard;
+  }, [currentDeckCard, chooseMealForSlot, skipToNextCard]);
 
   const toggleFavorite = (mealId: string) => {
     Haptics.selectionAsync().catch(() => undefined);
@@ -332,7 +385,7 @@ export function PlanScreen() {
     );
   }
 
-  const mealTypeEmoji: Record<MealType, string> = { Desayuno: '🌅', Almuerzo: '☀️', Cena: '🌙' };
+  const mealTypeEmoji: Record<MealType, string> = { Breakfast: '🌅', Lunch: '☀️', Dinner: '🌙' };
 
   return (
     <ScreenContainer title="This week" subtitle="Swipe right to approve or left to replace meals." refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}>
@@ -432,107 +485,85 @@ export function PlanScreen() {
         </View>
       ) : null}
 
-      {/* IT-006: Swipe cards ABOVE analytics */}
-      {/* IT-004: Locked (approved) cards shown first */}
-      {lockedCards.length > 0 ? (
+      {/* IT-010: Show chosen card OR swipe deck */}
+      {chosenMeal ? (
         <View style={styles.lockedSection}>
-          <Text style={[styles.lockedSectionTitle, { color: theme.text }]}>✅ Confirmed meals</Text>
-          {lockedCards.map((card) => {
-            const desc = card.description || getMealDescription(card.id);
-            return (
-              <View key={card.id} style={[styles.lockedCard, { borderColor: theme.success, backgroundColor: theme.success + '08' }]}>
-                <View style={styles.cardHeaderRow}>
-                  <MealCategoryIcon title={card.title} size={32} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.lockedTitle, { color: theme.text }]}>{card.title}</Text>
-                    {desc ? <Text style={[styles.mealDescription, { color: theme.muted }]} numberOfLines={2}>{desc}</Text> : null}
-                  </View>
-                  <View style={[styles.lockedBadge, { backgroundColor: theme.success }]}>
-                    <Text style={styles.lockedBadgeText}>✓ Locked</Text>
-                  </View>
-                </View>
-                <View style={styles.metaRow}>
-                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{card.prepTimeMin} min</Text>
-                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{card.level}</Text>
-                </View>
+          <Text style={[styles.lockedSectionTitle, { color: theme.text }]}>✅ Your pick for {selectedMealType}</Text>
+          <View style={[styles.lockedCard, { borderColor: theme.success, backgroundColor: theme.success + '08' }]}>
+            {/* IT-009: Dismiss X button */}
+            <Pressable onPress={dismissChosenMeal} style={styles.dismissButton} accessibilityRole="button" accessibilityLabel="Dismiss chosen meal">
+              <Text style={styles.dismissButtonText}>✕</Text>
+            </Pressable>
+            <View style={styles.cardHeaderRow}>
+              <MealCategoryIcon title={chosenMeal.title} size={32} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.lockedTitle, { color: theme.text }]}>{chosenMeal.title}</Text>
+                {chosenMeal.description ? <Text style={[styles.mealDescription, { color: theme.muted }]} numberOfLines={2}>{chosenMeal.description}</Text> : null}
               </View>
-            );
-          })}
-        </View>
-      ) : null}
-
-      {/* Swipe deck */}
-      <View style={styles.deckContainer}>
-        {visibleCards.length === 0 ? (
-          <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.surface }]}>
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>{favoritesOnly ? 'No favorite meals pending' : activeDietaryTags.length > 0 ? 'No meals match dietary filters' : `You're done for ${selectedDay}`}</Text>
-            <Text style={[styles.emptyCopy, { color: theme.muted }]}>
-              {favoritesOnly ? 'Turn off the favorites filter or mark more meals as favorites.' : activeDietaryTags.length > 0 ? 'Try removing some dietary filters.' : 'Switch to another day to keep planning your week.'}
-            </Text>
+              {/* IT-009: "Chosen" badge */}
+              <View style={[styles.lockedBadge, { backgroundColor: theme.success }]}>
+                <Text style={styles.lockedBadgeText}>✓ Chosen</Text>
+              </View>
+            </View>
+            <View style={styles.metaRow}>
+              <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{chosenMeal.prepTimeMin} min</Text>
+              <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{chosenMeal.level}</Text>
+            </View>
           </View>
-        ) : null}
-
-        {visibleCards.map((card: MealCard, index: number) => {
-          const isTop = index === 0;
-          const scaledCard = scaleMealIngredients(card, portionScale);
-          const desc = card.description || getMealDescription(card.id);
-          const animatedStyle = isTop
-            ? { transform: [{ translateX: dragX }, { rotate: dragX.interpolate({ inputRange: [-200, 0, 200], outputRange: ['-8deg', '0deg', '8deg'] }) }] }
-            : undefined;
-          const CardWrapper = isTop ? Animated.View : View;
-          const isFavorite = favoriteMealIds.includes(card.id);
-          const mealRating = mealRatings[card.id];
-          const approveOverlayOpacity = isTop ? dragX.interpolate({ inputRange: [0, 80, 160], outputRange: [0, 0.4, 0.85], extrapolate: 'clamp' }) : undefined;
-          const replaceOverlayOpacity = isTop ? dragX.interpolate({ inputRange: [-160, -80, 0], outputRange: [0.85, 0.4, 0], extrapolate: 'clamp' }) : undefined;
-
-          return (
-            <CardWrapper
-              key={card.id}
-              style={[styles.mealCard, { borderColor: theme.border, backgroundColor: theme.surface, top: index * 8, zIndex: visibleCards.length - index }, animatedStyle]}
-              {...(isTop ? panResponder.panHandlers : {})}
+        </View>
+      ) : (
+        /* Swipe deck from meal database */
+        <View style={styles.deckContainer}>
+          {!currentDeckCard ? (
+            <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                {activeDietaryTags.length > 0 ? 'No meals match dietary filters' : 'No more meals to show'}
+              </Text>
+              <Text style={[styles.emptyCopy, { color: theme.muted }]}>
+                {activeDietaryTags.length > 0 ? 'Try removing some dietary filters.' : 'Try searching for a specific meal or adjust your filters.'}
+              </Text>
+            </View>
+          ) : (
+            <Animated.View
+              style={[styles.mealCard, { borderColor: theme.border, backgroundColor: theme.surface, top: 0, zIndex: 1 }, { transform: [{ translateX: dragX }, { rotate: dragX.interpolate({ inputRange: [-200, 0, 200], outputRange: ['-8deg', '0deg', '8deg'] }) }] }]}
+              {...panResponder.panHandlers}
             >
-              {isTop && approveOverlayOpacity ? (
-                <Animated.View style={[styles.swipeOverlay, styles.approveOverlay, { opacity: approveOverlayOpacity }]} pointerEvents="none">
-                  <Text style={styles.swipeOverlayIcon}>✓</Text>
-                  <Text style={styles.swipeOverlayLabel}>Approve</Text>
-                </Animated.View>
-              ) : null}
-              {isTop && replaceOverlayOpacity ? (
-                <Animated.View style={[styles.swipeOverlay, styles.replaceOverlay, { opacity: replaceOverlayOpacity }]} pointerEvents="none">
-                  <Text style={styles.swipeOverlayIcon}>↻</Text>
-                  <Text style={styles.swipeOverlayLabel}>Replace</Text>
-                </Animated.View>
-              ) : null}
-              <Pressable onPress={() => navigation.navigate('MealDetails', { slotId: `${selectedDay}-${index + 1}`, title: scaledCard.title, prepTimeMin: scaledCard.prepTimeMin, level: scaledCard.level, ingredients: scaledCard.ingredients, shortPrep: scaledCard.shortPrep })}>
+              <Animated.View style={[styles.swipeOverlay, styles.approveOverlay, { opacity: dragX.interpolate({ inputRange: [0, 80, 160], outputRange: [0, 0.4, 0.85], extrapolate: 'clamp' }) }]} pointerEvents="none">
+                <Text style={styles.swipeOverlayIcon}>✓</Text>
+                <Text style={styles.swipeOverlayLabel}>Choose</Text>
+              </Animated.View>
+              <Animated.View style={[styles.swipeOverlay, styles.replaceOverlay, { opacity: dragX.interpolate({ inputRange: [-160, -80, 0], outputRange: [0.85, 0.4, 0], extrapolate: 'clamp' }) }]} pointerEvents="none">
+                <Text style={styles.swipeOverlayIcon}>↻</Text>
+                <Text style={styles.swipeOverlayLabel}>Skip</Text>
+              </Animated.View>
+              <Pressable onPress={() => navigation.navigate('MealDetails', { slotId: slotKey, title: currentDeckCard.title, prepTimeMin: currentDeckCard.prepTimeMin, level: currentDeckCard.level, ingredients: currentDeckCard.ingredients, shortPrep: currentDeckCard.shortPrep })}>
                 <View style={styles.cardHeaderRow}>
-                  <MealCategoryIcon title={card.title} size={36} />
-                  <Text style={[styles.mealTitle, { color: theme.text }]}>{card.title}</Text>
-                  <Pressable onPress={() => toggleFavorite(card.id)} style={[styles.favoriteButton, { borderColor: theme.border, backgroundColor: theme.surface }]} accessibilityRole="button" accessibilityLabel={isFavorite ? `Remove ${card.title} from favorites` : `Add ${card.title} to favorites`}>
-                    <Text style={[styles.favoriteButtonText, { color: theme.primary }]}>{isFavorite ? '★' : '☆'}</Text>
+                  <MealCategoryIcon title={currentDeckCard.title} size={36} />
+                  <Text style={[styles.mealTitle, { color: theme.text }]}>{currentDeckCard.title}</Text>
+                  <Pressable onPress={() => toggleFavorite(currentDeckCard.id)} style={[styles.favoriteButton, { borderColor: theme.border, backgroundColor: theme.surface }]} accessibilityRole="button" accessibilityLabel={favoriteMealIds.includes(currentDeckCard.id) ? `Remove ${currentDeckCard.title} from favorites` : `Add ${currentDeckCard.title} to favorites`}>
+                    <Text style={[styles.favoriteButtonText, { color: theme.primary }]}>{favoriteMealIds.includes(currentDeckCard.id) ? '★' : '☆'}</Text>
                   </Pressable>
                 </View>
-                {/* IT-007: Meal description */}
-                {desc ? <Text style={[styles.mealDescription, { color: theme.muted }]} numberOfLines={2}>{desc}</Text> : null}
+                {currentDeckCard.description ? <Text style={[styles.mealDescription, { color: theme.muted }]} numberOfLines={2}>{currentDeckCard.description}</Text> : null}
                 <View style={styles.metaRow}>
-                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{card.prepTimeMin} min</Text>
-                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{card.level}</Text>
+                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{currentDeckCard.prepTimeMin} min</Text>
+                  <Text style={[styles.metaChip, { color: theme.muted, borderColor: theme.border }]}>{currentDeckCard.level}</Text>
                   {portionScale !== 1 ? <Text style={[styles.metaChip, { color: theme.primary, borderColor: theme.primary + '40' }]}>{portionScale}× portions</Text> : null}
-                  {isFavorite ? <Text style={[styles.favoriteBadge, { color: theme.primary, borderColor: theme.primary + '40' }]}>Favorite</Text> : null}
                 </View>
                 <View style={styles.ratingRow}>
-                  <Pressable onPress={() => handleRateMeal(card.id, 1)} style={[styles.ratingButton, { borderColor: theme.border }, mealRating === 1 && { borderColor: theme.success, backgroundColor: theme.success + '18' }]}>
-                    <Text style={[styles.ratingEmoji, mealRating === 1 && { opacity: 1 }]}>👍</Text>
+                  <Pressable onPress={() => handleRateMeal(currentDeckCard.id, 1)} style={[styles.ratingButton, { borderColor: theme.border }, mealRatings[currentDeckCard.id] === 1 && { borderColor: theme.success, backgroundColor: theme.success + '18' }]}>
+                    <Text style={[styles.ratingEmoji, mealRatings[currentDeckCard.id] === 1 && { opacity: 1 }]}>👍</Text>
                   </Pressable>
-                  <Pressable onPress={() => handleRateMeal(card.id, -1)} style={[styles.ratingButton, { borderColor: theme.border }, mealRating === -1 && { borderColor: theme.danger, backgroundColor: theme.danger + '18' }]}>
-                    <Text style={[styles.ratingEmoji, mealRating === -1 && { opacity: 1 }]}>👎</Text>
+                  <Pressable onPress={() => handleRateMeal(currentDeckCard.id, -1)} style={[styles.ratingButton, { borderColor: theme.border }, mealRatings[currentDeckCard.id] === -1 && { borderColor: theme.danger, backgroundColor: theme.danger + '18' }]}>
+                    <Text style={[styles.ratingEmoji, mealRatings[currentDeckCard.id] === -1 && { opacity: 1 }]}>👎</Text>
                   </Pressable>
                 </View>
-                {isTop ? <Text style={[styles.swipeHint, { color: theme.primary }]}>← Replace · Approve →</Text> : null}
+                <Text style={[styles.swipeHint, { color: theme.primary }]}>← Skip · Choose →</Text>
               </Pressable>
-            </CardWrapper>
-          );
-        })}
-      </View>
+            </Animated.View>
+          )}
+        </View>
+      )}
 
       {/* IT-006: Analytics moved BELOW swipe cards */}
       <View style={[styles.progressCard, { borderColor: theme.border, backgroundColor: theme.surface }]} accessibilityRole="summary" accessibilityLabel={`Weekly progress: ${progressPct} percent, ${approvedIds.length} of ${totalMeals} meals approved`}>
@@ -662,6 +693,9 @@ const styles = StyleSheet.create({
   lockedTitle: { fontWeight: '700', fontSize: 15 },
   lockedBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   lockedBadgeText: { color: '#fff', fontWeight: '700', fontSize: 11 },
+  // IT-009: Dismiss X button
+  dismissButton: { position: 'absolute', top: 8, right: 8, zIndex: 10, width: 28, height: 28, borderRadius: 14, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+  dismissButtonText: { color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 },
   // Meal description (IT-007)
   mealDescription: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
   deckContainer: { minHeight: 320, marginBottom: 12 },

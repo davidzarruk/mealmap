@@ -8,9 +8,9 @@ export type IngredientItem = {
   category: 'Produce' | 'Protein' | 'Pantry' | 'Dairy';
 };
 
-export type MealType = 'Desayuno' | 'Almuerzo' | 'Cena';
+export type MealType = 'Breakfast' | 'Lunch' | 'Dinner';
 
-export const mealTypes: MealType[] = ['Desayuno', 'Almuerzo', 'Cena'];
+export const mealTypes: MealType[] = ['Breakfast', 'Lunch', 'Dinner'];
 
 export type MealCard = {
   id: string;

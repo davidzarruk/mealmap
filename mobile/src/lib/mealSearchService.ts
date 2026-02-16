@@ -61,7 +61,7 @@ class MockLLMProvider implements MealSearchProvider {
     }
 
     // If mealType is breakfast, add breakfast items
-    if (mealType === 'Desayuno' || q.includes('breakfast') || q.includes('desayuno')) {
+    if (mealType === 'Breakfast' || q.includes('breakfast')) {
       results.push(...(MOCK_CATALOG.breakfast ?? []));
     }
 

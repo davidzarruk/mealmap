@@ -1,0 +1,13 @@
+{
+  "name": "mealmap",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:board": "node scripts/sync-board-to-supabase.mjs",
+    "validate:supabase-prod": "node scripts/validate-supabase-prod.mjs",
+    "seed:meals": "node scripts/generate-seed-meals-sql.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3"
+  }
+}

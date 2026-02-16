@@ -1,0 +1,74 @@
+[
+  {
+    "slug": "ajiaco-rapido",
+    "title": "Quick ajiaco",
+    "region": "CO",
+    "skill_level": "Beginner",
+    "prep_time_min": 35,
+    "slot": "lunch",
+    "tags": ["soup", "colombian", "chicken", "potato"]
+  },
+  {
+    "slug": "pollo-criollo-bowl",
+    "title": "Creole chicken bowl",
+    "region": "CO",
+    "skill_level": "Beginner",
+    "prep_time_min": 30,
+    "slot": "lunch",
+    "tags": ["bowl", "colombian", "rice", "chicken"]
+  },
+  {
+    "slug": "lentejas-arroz",
+    "title": "Lentils with rice",
+    "region": "CO",
+    "skill_level": "Intermediate",
+    "prep_time_min": 40,
+    "slot": "lunch",
+    "tags": ["legumes", "comfort", "rice"]
+  },
+  {
+    "slug": "sudado-res",
+    "title": "Beef stew",
+    "region": "CO",
+    "skill_level": "Intermediate",
+    "prep_time_min": 45,
+    "slot": "lunch",
+    "tags": ["stew", "beef", "potato"]
+  },
+  {
+    "slug": "ensalada-tibio-atun",
+    "title": "Warm tuna salad",
+    "region": "CO",
+    "skill_level": "Beginner",
+    "prep_time_min": 20,
+    "slot": "lunch",
+    "tags": ["salad", "fish", "quick"]
+  },
+  {
+    "slug": "tilapia-horno",
+    "title": "Baked tilapia",
+    "region": "CO",
+    "skill_level": "Beginner",
+    "prep_time_min": 30,
+    "slot": "lunch",
+    "tags": ["fish", "baked", "quick"]
+  },
+  {
+    "slug": "sancocho-express",
+    "title": "Express sancocho",
+    "region": "CO",
+    "skill_level": "Advanced",
+    "prep_time_min": 50,
+    "slot": "lunch",
+    "tags": ["soup", "colombian", "roots"]
+  },
+  {
+    "slug": "curry-garbanzos",
+    "title": "Mild chickpea curry",
+    "region": "CO",
+    "skill_level": "Intermediate",
+    "prep_time_min": 35,
+    "slot": "lunch",
+    "tags": ["legumes", "stew", "vegetarian"]
+  }
+]

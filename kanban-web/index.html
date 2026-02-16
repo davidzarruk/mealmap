@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mealmap Kanban Live</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Mealmap Kanban Live</h1>
+      <div id="status"></div>
+    </header>
+
+    <main id="board"></main>
+
+    <template id="ticket-template">
+      <article class="ticket">
+        <div class="ticket-id"></div>
+        <div class="ticket-title"></div>
+        <div class="ticket-meta"></div>
+        <label>
+          Move to:
+          <select class="status-select"></select>
+        </label>
+      </article>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

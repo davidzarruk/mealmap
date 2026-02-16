@@ -8,13 +8,19 @@ export type IngredientItem = {
   category: 'Produce' | 'Protein' | 'Pantry' | 'Dairy';
 };
 
+export type MealType = 'Desayuno' | 'Almuerzo' | 'Cena';
+
+export const mealTypes: MealType[] = ['Desayuno', 'Almuerzo', 'Cena'];
+
 export type MealCard = {
   id: string;
   title: string;
+  description?: string;
   prepTimeMin: number;
   level: SkillLevel;
   ingredients: IngredientItem[];
   shortPrep: string;
+  mealType?: MealType;
 };
 
 export type WeekMealsMap = Record<DayKey, MealCard[]>;

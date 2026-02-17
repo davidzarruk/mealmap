@@ -79,6 +79,101 @@ Ver `PRD.md` sección 9 para modelo de datos completo.
 
 ---
 
+## 📋 Sistema Kanban (Gestión de Proyecto)
+
+### Kanban Web App
+
+**Ubicación:** `/kanban-web/`
+
+**Stack:**
+- HTML + CSS + JavaScript vanilla
+- Supabase Realtime (actualización automática)
+- LocalStorage para credenciales
+
+**Funcionalidad:**
+- Tablero visual: Backlog → Next → In Progress → In Review → QA → Done
+- Actualización en tiempo real (sin refresh)
+- Mover tickets entre columnas
+- Log automático de cambios en `ticket_events`
+
+### Ejecutar Kanban Local
+
+```bash
+cd kanban-web
+python3 -m http.server 4173
+# Abrir: http://localhost:4173
+```
+
+**Primera vez te pedirá:**
+- Supabase URL: `https://cxhpvtwxpgpflgqylgsi.supabase.co`
+- Supabase Anon Key (pedir a David)
+- Owner UUID (tu user ID de Supabase Auth)
+
+**Valores se guardan en localStorage.**
+
+### Deploy a Producción
+
+**URL objetivo:** `kanban.davidzarruk.com`
+
+**Plataforma:** Lovable (static hosting)
+
+**Checklist completo en:**
+`/docs/deploy-checklist-kanban-davidzarruk-com.md`
+
+**Pasos:**
+1. Aplicar migración SQL: `supabase/migrations/20260216092000_kanban_live.sql`
+2. Publicar archivos de `kanban-web/` en Lovable
+3. Configurar CNAME en Namecheap: `kanban` → Lovable hostname
+4. Verificar SSL/HTTPS
+
+### Sincronizar board.md → Supabase
+
+**Script:** `/scripts/preflight-kanban-supabase.mjs`
+
+```bash
+cd mealmap
+SUPABASE_URL="https://cxhpvtwxpgpflgqylgsi.supabase.co" \
+SUPABASE_SERVICE_ROLE_KEY="..." \
+SUPABASE_OWNER_ID="..." \
+node scripts/preflight-kanban-supabase.mjs
+```
+
+**⚠️ IMPORTANTE:**
+- `board.md` puede estar desactualizado
+- **Fuente de verdad:** Supabase + Kanban Web
+- NO usar `board.md` como referencia de estado actual
+
+### Tablas en Supabase
+
+**Schema:** `supabase/migrations/20260216092000_kanban_live.sql`
+
+**Tablas:**
+- `tickets` - Tickets del kanban
+- `ticket_events` - Historial de cambios/actividad
+
+**Verificar en SQL Editor:**
+```sql
+SELECT COUNT(*) FROM tickets WHERE project = 'mealmap';
+SELECT * FROM tickets ORDER BY created_at DESC LIMIT 10;
+```
+
+### Integración con DataRunner
+
+**DataRunner usa el mismo Kanban** (proyecto Mealmap de Supabase).
+
+**Script de setup:** `/root/.openclaw/workspace/datarunner-kanban-setup.ts`
+
+**Crea 12 tickets de DataRunner** en el Kanban compartido (#001-#012).
+
+```bash
+cd /root/.openclaw/workspace
+MEALMAP_SERVICE_KEY="..." npx tsx datarunner-kanban-setup.ts
+```
+
+**Ver tickets:** https://supabase.com/dashboard/project/cxhpvtwxpgpflgqylgsi/editor
+
+---
+
 ## 🚀 Setup (si se retoma)
 
 ### 1. Instalar dependencias
@@ -134,15 +229,26 @@ mealmap/
 │   │   ├── types/
 │   │   └── utils/
 │   └── app.json
+├── kanban-web/              # 📋 Kanban Web App (IMPORTANTE)
+│   ├── index.html           # Página principal
+│   ├── app.js               # Lógica + Supabase Realtime
+│   ├── styles.css
+│   └── README.md            # Instrucciones de uso
 ├── supabase/
-│   ├── migrations/          # Schema SQL
+│   ├── migrations/
+│   │   ├── 20260216092000_kanban_live.sql  # Schema Kanban
+│   │   └── ...              # Otras migraciones
 │   ├── functions/           # Edge Functions
 │   └── seed/                # Datos de prueba
-├── docs/                    # Documentación
-├── scripts/                 # Scripts utilitarios
+├── docs/
+│   ├── deploy-checklist-kanban-davidzarruk-com.md  # Deploy Kanban
+│   └── ...                  # Otra documentación
+├── scripts/
+│   ├── preflight-kanban-supabase.mjs  # Sync board.md → Supabase
+│   └── ...                  # Otros scripts
 ├── PRD.md                   # Especificaciones del producto
 ├── BACKLOG_STATUS.md        # Estado de tickets
-└── board.md                 # Kanban (desactualizado)
+└── board.md                 # ⚠️ Kanban (DESACTUALIZADO - no usar)
 ```
 
 ---
@@ -233,12 +339,22 @@ Ver `BACKLOG_STATUS.md` para detalles completos.
 
 ## 🚦 Kanban System
 
-**Lovable UI conectado a Supabase** es la fuente de verdad para:
-- Estado de tickets
-- Progreso del proyecto
-- Dependencias entre tareas
+**Sistema completo de gestión de tickets.**
 
-**NO usar `board.md`** - puede estar desactualizado.
+**Fuente de verdad:** Supabase (`tickets` + `ticket_events`)
+
+**Interfaces:**
+- 📱 Kanban Web App (`/kanban-web/`) - Tablero visual en vivo
+- 🌐 Producción: `kanban.davidzarruk.com` (cuando esté deployado)
+- 🗄️ Supabase Tables: Acceso directo vía SQL Editor
+
+**⚠️ NO usar `board.md`** - está desactualizado.
+
+**Ver sección "📋 Sistema Kanban" arriba** para instrucciones completas de:
+- Cómo ejecutar local
+- Deploy a producción
+- Sincronización de datos
+- Integración con DataRunner
 
 ---
 
